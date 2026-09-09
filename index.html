@@ -546,6 +546,7 @@
   <div class="tb">
     <button class="btn br" id="ba" onclick="openForm(-1)">➕ Nouveau dossier</button>
     <button class="btn bo" onclick="exportExcel()">📥 Export CSV</button>
+    <button class="btn bo" id="bt" onclick="openTrash()">♻️ Corbeille</button>
     <button class="btn bo" id="bc" onclick="confirmClear()">🗑️ Effacer tout</button>
     <div class="sw">🔍 <input type="text" id="si" placeholder="Rechercher..." oninput="render()"></div>
   </div>
@@ -648,6 +649,17 @@
         <button class="bsv" id="cbtn">Confirmer</button>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- MODAL CORBEILLE -->
+<div class="ov" id="tm">
+  <div class="modal" style="width:560px;max-width:92vw">
+    <div class="mhdr">
+      <h2>♻️ Corbeille</h2>
+      <button class="mx" onclick="closeTrash()">✕</button>
+    </div>
+    <div class="mbody" id="tl" style="max-height:60vh;overflow:auto"></div>
   </div>
 </div>
 
@@ -773,6 +785,7 @@ function login(){
   const e=u.role!=='readonly';
   document.getElementById('ba').style.display=e?'inline-flex':'none';
   document.getElementById('bc').style.display=u.role==='superviseur'?'inline-flex':'none';
+  document.getElementById('bt').style.display=u.role==='superviseur'?'inline-flex':'none';
   loadData();
 }
 const genId=()=>'d'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
@@ -807,19 +820,74 @@ async function saveRow(row){
     hash=JSON.stringify(data);setSt('on','En direct ⚡');
   }catch(e){setSt('off','Erreur');toast('⚠️ Erreur synchronisation');}
 }
-async function deleteRow(id){
+// Chemin de la corbeille : même base Firebase que les dossiers actifs, sous /corbeille au lieu de /data.
+const FBT=()=>FB.replace(/\/data$/,'/corbeille');
+// Suppression = déplacer vers la corbeille, jamais un vrai effacement direct.
+async function deleteRow(row){
   setSt('busy','Suppression...');
   try{
-    await fetch(FB+'/'+id+'.json',{method:'DELETE'});
+    const trashed={...row,deletedAt:new Date().toISOString(),deletedBy:me?me.name:''};
+    await fetch(FBT()+'/'+row.id+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(trashed)});
+    await fetch(FB+'/'+row.id+'.json',{method:'DELETE'});
     hash=JSON.stringify(data);setSt('on','En direct ⚡');
   }catch(e){setSt('off','Erreur');toast('⚠️ Erreur synchronisation');}
 }
 async function clearAll(){
   setSt('busy','Suppression...');
   try{
+    const ts=new Date().toISOString();
+    await Promise.all(data.map(row=>fetch(FBT()+'/'+row.id+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...row,deletedAt:ts,deletedBy:me?me.name:''})})));
     await fetch(FB+'.json',{method:'DELETE'});
     hash=JSON.stringify(data);setSt('on','En direct ⚡');
   }catch(e){setSt('off','Erreur');toast('⚠️ Erreur synchronisation');}
+}
+async function openTrash(){
+  if(!me||me.role!=='superviseur')return;
+  document.getElementById('tm').classList.add('open');
+  document.getElementById('tl').innerHTML='<div class="empty"><div class="eic">⏳</div><div>Chargement...</div></div>';
+  try{
+    const r=await fetch(FBT()+'.json');const d=await r.json();
+    const trash=toArr(d).sort((a,b)=>(b.deletedAt||'').localeCompare(a.deletedAt||''));
+    renderTrash(trash);
+  }catch(e){
+    document.getElementById('tl').innerHTML='<div class="empty"><div class="eic">⚠️</div><div>Impossible de charger la corbeille</div></div>';
+  }
+}
+function closeTrash(){document.getElementById('tm').classList.remove('open');}
+function renderTrash(trash){
+  const tl=document.getElementById('tl');
+  if(!trash.length){tl.innerHTML='<div class="empty"><div class="eic">♻️</div><div>Corbeille vide</div></div>';return;}
+  tl.innerHTML='';
+  trash.forEach(row=>{
+    const el=document.createElement('div');
+    el.className='card';
+    el.innerHTML=`
+      <div class="crow" style="cursor:default">
+        <div class="cleft">
+          <div>
+            <div class="cdos">${row.dossier||'—'}</div>
+            <div class="cmeta">👤 <strong>${row.agent||'—'}</strong> · 📅 ${fmt(row.date)} · 🗑️ supprimé par ${row.deletedBy||'—'} ${row.deletedAt?'le '+new Date(row.deletedAt).toLocaleDateString('fr-FR'):''}</div>
+          </div>
+        </div>
+        <div class="cright">
+          <button class="cb cbe" onclick="restoreRow('${row.id}')">♻️ Restaurer</button>
+        </div>
+      </div>`;
+    tl.appendChild(el);
+  });
+}
+async function restoreRow(id){
+  setSt('busy','Restauration...');
+  try{
+    const r=await fetch(FBT()+'/'+id+'.json');const row=await r.json();
+    if(!row){toast('⚠️ Introuvable dans la corbeille');return;}
+    delete row.deletedAt;delete row.deletedBy;
+    await fetch(FB+'/'+id+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(row)});
+    await fetch(FBT()+'/'+id+'.json',{method:'DELETE'});
+    data.push(row);hash=JSON.stringify(data);render();
+    toast('✅ Dossier restauré');
+    openTrash();
+  }catch(e){setSt('off','Erreur');toast('⚠️ Erreur restauration');}
 }
 function setFilter(f){
   activeFilter=f;
@@ -989,7 +1057,7 @@ function saveForm(){
 function confirmDel(idx){
   if(!me||me.role!=='superviseur')return;
   document.getElementById('cmsg').textContent=`Supprimer le dossier ${data[idx]?.dossier||'#'+(idx+1)} ?`;
-  document.getElementById('cbtn').onclick=()=>{const id=data[idx].id;data.splice(idx,1);deleteRow(id);render();closeCm();toast('🗑️ Supprimé');};
+  document.getElementById('cbtn').onclick=()=>{const row=data[idx];data.splice(idx,1);deleteRow(row);render();closeCm();toast('🗑️ Supprimé (récupérable dans la Corbeille)');};
   document.getElementById('cm').classList.add('open');
 }
 function confirmClear(){
@@ -1097,6 +1165,7 @@ function login(){
   const e=u.role!=='readonly';
   document.getElementById('ba').style.display=e?'inline-flex':'none';
   document.getElementById('bc').style.display=u.role==='superviseur'?'inline-flex':'none';
+  document.getElementById('bt').style.display=u.role==='superviseur'?'inline-flex':'none';
   loadData();
 }
 
