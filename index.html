@@ -772,7 +772,7 @@ function login(){
   rb.className='rb '+(u.role==='superviseur'?'rs':u.role==='readonly'?'rd':'ra');
   const e=u.role!=='readonly';
   document.getElementById('ba').style.display=e?'inline-flex':'none';
-  document.getElementById('bc').style.display=e?'inline-flex':'none';
+  document.getElementById('bc').style.display=u.role==='superviseur'?'inline-flex':'none';
   loadData();
 }
 const genId=()=>'d'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
@@ -831,6 +831,7 @@ function render(){
   const cl=document.getElementById('cl');
   const q=(document.getElementById('si')?.value||'').toLowerCase();
   const canEdit=me&&me.role!=='readonly';
+  const canDelete=me&&me.role==='superviseur';
   document.getElementById('s0').textContent=data.length;
   document.getElementById('s1').textContent=data.filter(r=>r.defaut==='Oui').length;
   document.getElementById('s2').textContent=data.filter(r=>r.defaut==='Non').length;
@@ -896,7 +897,7 @@ function render(){
           <span class="cfi">Enregistré le ${fmt(row.date)}</span>
           ${canEdit?`<div class="cac">
             <button class="cb cbe" onclick="event.stopPropagation();openForm(parseInt(this.closest('.card').dataset.idx))">✏️ Modifier</button>
-            <button class="cb cbd" onclick="event.stopPropagation();confirmDel(parseInt(this.closest('.card').dataset.idx))">🗑️</button>
+            ${canDelete?`<button class="cb cbd" onclick="event.stopPropagation();confirmDel(parseInt(this.closest('.card').dataset.idx))">🗑️</button>`:''}
           </div>`:`<span class="cfi" style="color:#7c3aed">👁️ Lecture seule</span>`}
         </div>
       </div>`;
@@ -986,6 +987,7 @@ function saveForm(){
   closeForm();saveRow(row);render();
 }
 function confirmDel(idx){
+  if(!me||me.role!=='superviseur')return;
   document.getElementById('cmsg').textContent=`Supprimer le dossier ${data[idx]?.dossier||'#'+(idx+1)} ?`;
   document.getElementById('cbtn').onclick=()=>{const id=data[idx].id;data.splice(idx,1);deleteRow(id);render();closeCm();toast('🗑️ Supprimé');};
   document.getElementById('cm').classList.add('open');
@@ -1094,7 +1096,7 @@ function login(){
   rb.className='rb '+(u.role==='superviseur'?'rs':u.role==='readonly'?'rd':'ra');
   const e=u.role!=='readonly';
   document.getElementById('ba').style.display=e?'inline-flex':'none';
-  document.getElementById('bc').style.display=e?'inline-flex':'none';
+  document.getElementById('bc').style.display=u.role==='superviseur'?'inline-flex':'none';
   loadData();
 }
 
