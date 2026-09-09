@@ -775,11 +775,17 @@ function login(){
   document.getElementById('bc').style.display=e?'inline-flex':'none';
   loadData();
 }
+const genId=()=>'d'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+function toArr(d){
+  if(!d)return[];
+  if(Array.isArray(d))return d.map((v,i)=>v?({...v,id:v.id||String(i)}):null).filter(Boolean);
+  return Object.entries(d).map(([k,v])=>({...v,id:v.id||k}));
+}
 async function loadData(){
   setSt('busy','Connexion...');
   try{
     const r=await fetch(FB+'.json');const d=await r.json();
-    data=d?(Array.isArray(d)?d:Object.values(d)):[];
+    data=toArr(d);
     hash=JSON.stringify(data);render();setSt('on','En direct ⚡');startSync();
   }catch(e){setSt('off','Hors ligne');data=[];render();}
 }
@@ -787,16 +793,31 @@ function startSync(){
   if(sync)clearInterval(sync);
   sync=setInterval(async()=>{
     try{const r=await fetch(FB+'.json');const d=await r.json();
-      if(d){const inc=Array.isArray(d)?d:Object.values(d);const h=JSON.stringify(inc);if(h!==hash){data=inc;hash=h;render();toast('🔄 Mis à jour');}}
+      const inc=toArr(d);const h=JSON.stringify(inc);if(h!==hash){data=inc;hash=h;render();toast('🔄 Mis à jour');}
       setSt('on','En direct ⚡');
     }catch(e){setSt('off','Hors ligne');}
   },4000);
 }
-async function save(){
+// Sauvegarde CIBLÉE : ne touche que le dossier concerné (jamais toute la base)
+// pour ne jamais écraser ce que d'autres agents viennent d'ajouter/modifier.
+async function saveRow(row){
   setSt('busy','Sauvegarde...');
   try{
-    const obj={};data.forEach((r,i)=>obj[i]=r);
-    await fetch(FB+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(obj)});
+    await fetch(FB+'/'+row.id+'.json',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(row)});
+    hash=JSON.stringify(data);setSt('on','En direct ⚡');
+  }catch(e){setSt('off','Erreur');toast('⚠️ Erreur synchronisation');}
+}
+async function deleteRow(id){
+  setSt('busy','Suppression...');
+  try{
+    await fetch(FB+'/'+id+'.json',{method:'DELETE'});
+    hash=JSON.stringify(data);setSt('on','En direct ⚡');
+  }catch(e){setSt('off','Erreur');toast('⚠️ Erreur synchronisation');}
+}
+async function clearAll(){
+  setSt('busy','Suppression...');
+  try{
+    await fetch(FB+'.json',{method:'DELETE'});
     hash=JSON.stringify(data);setSt('on','En direct ⚡');
   }catch(e){setSt('off','Erreur');toast('⚠️ Erreur synchronisation');}
 }
@@ -949,6 +970,7 @@ function saveForm(){
   const defaut=document.querySelector('input[name="def"]:checked')?.value||'';
   const gestionSpec=document.querySelector('input[name="gs"]:checked')?.value||'';
   const row={
+    id:eidx===-1?genId():data[eidx].id,
     date:eidx===-1?iso():data[eidx].date,agent,dossier,
     defaut,
     defautDesc:defaut?document.getElementById('fDD').value.trim():'',
@@ -961,16 +983,16 @@ function saveForm(){
   };
   if(eidx===-1){data.push(row);toast('✅ Dossier ajouté');}
   else{data[eidx]=row;toast('✅ Dossier modifié');}
-  closeForm();save();render();
+  closeForm();saveRow(row);render();
 }
 function confirmDel(idx){
   document.getElementById('cmsg').textContent=`Supprimer le dossier ${data[idx]?.dossier||'#'+(idx+1)} ?`;
-  document.getElementById('cbtn').onclick=()=>{data.splice(idx,1);save();render();closeCm();toast('🗑️ Supprimé');};
+  document.getElementById('cbtn').onclick=()=>{const id=data[idx].id;data.splice(idx,1);deleteRow(id);render();closeCm();toast('🗑️ Supprimé');};
   document.getElementById('cm').classList.add('open');
 }
 function confirmClear(){
   document.getElementById('cmsg').textContent='Effacer TOUS les dossiers ?';
-  document.getElementById('cbtn').onclick=()=>{data=[];save();render();closeCm();toast('🗑️ Effacé');};
+  document.getElementById('cbtn').onclick=()=>{data=[];clearAll();render();closeCm();toast('🗑️ Effacé');};
   document.getElementById('cm').classList.add('open');
 }
 function closeCm(){document.getElementById('cm').classList.remove('open');}
